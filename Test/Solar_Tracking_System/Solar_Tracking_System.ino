@@ -29,34 +29,22 @@ float currentTiltPos = 90;
 // Giới hạn góc quay để bảo vệ dây điện và cơ khí
 const int PAN_MIN = 0;
 const int PAN_MAX = 180;
-const int TILT_MIN = 20;  // Không cho gập quá sâu
-const int TILT_MAX = 160; // Không cho ngửa quá đà
+const int TILT_MIN = 20; 
+const int TILT_MAX = 160; 
 
-// Ghìm tốc độ & Vùng chết an toàn 
-const float MAX_STEP = 0.2;   // Ép motor nhích siêu chậm (tối đa 0.2 độ/lần) chống vọt lố
-const float DEAD_BAND = 0.05; // Chốt chặn cơ học cuối cùng chống Hunting
-
-// Bù trừ sai số nội trở của phần cứng (LDR Mismatch)
-// Nếu hệ thống bị "lác" (không nhìn thẳng mặt trời), hãy tăng/giảm con số này
-const int OFFSET_PAN = 0;  
-const int OFFSET_TILT = 0; 
-
-// Chúng ta cần 2 bộ xử lý mờ riêng biệt cho Trục Ngang và Trục Dọc
 Fuzzy *fuzzyPan = new Fuzzy();
 Fuzzy *fuzzyTilt = new Fuzzy();
 
 // Hàm cài đặt Luật Mờ (Chạy trong setup)
-void setupFuzzyLogic(Fuzzy *fuzzySystem, int offset) {
-  // --- INPUT: Sai số ánh sáng (Error) ---
-  // Sai số nằm trong khoảng -4095 đến 4095 (Do ESP32 đọc ADC 12-bit)
+void setupFuzzyLogic(Fuzzy *fuzzySystem) {
+  // --- INPUT: Sai số ánh sáng đã chuẩn hóa
   FuzzyInput *errorInput = new FuzzyInput(1);
 
-  // ĐÃ SỬA LỖI: Thêm tiền tố "err" để tránh xung đột với macro hệ thống (đặc biệt là biến PS)
-  FuzzySet *errNB = new FuzzySet(-4095, -4095, -2000, -800 + offset); // Âm lớn (Lệch trái/dưới nhiều)
-  FuzzySet *errNS = new FuzzySet(-2000, -800, -400 + offset, -100 + offset);    // Âm nhỏ (Lệch trái/dưới ít)
-  FuzzySet *errZE = new FuzzySet(-150 + offset, -60 + offset, 60 + offset, 150 + offset);           // Cân bằng (Deadzone)
-  FuzzySet *errPS = new FuzzySet(100 + offset, 400 + offset, 800, 2000);        // Dương nhỏ (Lệch phải/trên ít)
-  FuzzySet *errPB = new FuzzySet(800, 2000, 4095, 4095);     // Dương lớn (Lệch phải/trên nhiều)
+  FuzzySet *errNB = new FuzzySet(-1.0, -1.0, -0.488, -0.122);
+  FuzzySet *errNS = new FuzzySet(-0.488, -0.300, -0.122, -0.012); 
+  FuzzySet *errZE = new FuzzySet(-0.049, -0.020, 0.020, 0.049);   
+  FuzzySet *errPS = new FuzzySet(0.012, 0.122, 0.300, 0.488);     
+  FuzzySet *errPB = new FuzzySet(0.122, 0.488, 1.0, 1.0);
 
   errorInput->addFuzzySet(errNB);
   errorInput->addFuzzySet(errNS);
@@ -66,7 +54,6 @@ void setupFuzzyLogic(Fuzzy *fuzzySystem, int offset) {
   fuzzySystem->addFuzzyInput(errorInput);
 
   // --- OUTPUT: Bước nhảy góc (Delta Angle) ---
-  // Bước nhảy từ -5 độ đến +5 độ mỗi chu kỳ
   FuzzyOutput *deltaAngle = new FuzzyOutput(1);
 
   FuzzySet *MoveFastNeg = new FuzzySet(-5, -5, -4, -2); 
@@ -143,8 +130,8 @@ void setup() {
   delay(1000); // Chờ Servo về đúng vị trí
 
   // Khởi tạo Bộ điều khiển mờ cho 2 trục
-  setupFuzzyLogic(fuzzyPan, OFFSET_PAN);
-  setupFuzzyLogic(fuzzyTilt, OFFSET_TILT);
+  setupFuzzyLogic(fuzzyPan);
+  setupFuzzyLogic(fuzzyTilt);
 
 
   filteredTL = analogRead(LDR_TL);
@@ -156,23 +143,21 @@ void setup() {
 }
 
 void loop() {
-// 1. Đọc giá trị thô từ 4 LDR
+  // Đọc giá trị thô từ 4 LDR
   int rawTL = analogRead(LDR_TL);
   int rawTR = analogRead(LDR_TR);
   int rawBL = analogRead(LDR_BL);
   int rawBR = analogRead(LDR_BR);
 
-  // 2. Lọc dữ liệu bằng EMA
+  // Lọc dữ liệu bằng EMA
   filteredTL = EMA_Filter(rawTL, filteredTL, ALPHA);
   filteredTR = EMA_Filter(rawTR, filteredTR, ALPHA);
   filteredBL = EMA_Filter(rawBL, filteredBL, ALPHA);
   filteredBR = EMA_Filter(rawBR, filteredBR, ALPHA);
 
-// 3. Tính toán sai số sử dụng giá trị ĐÃ LỌC
-  // Lưu ý: error vẫn có thể là int hoặc float tùy bạn, 
-  // nhưng để độ chính xác mờ cao nhất, nên dùng float.
-  float errorPan = (filteredTR + filteredBR) - (filteredTL + filteredBL); 
-  float errorTilt = (filteredTL + filteredTR) - (filteredBL + filteredBR);
+  // Tính toán sai số sử dụng giá trị đã lọc + chuẩn hóa
+  float errorPan = (float)((filteredTR + filteredBR) - (filteredTL + filteredBL)) / (filteredTL + filteredTR + filteredBL + filteredBR);
+  float errorTilt = (float)((filteredTL + filteredTR) - (filteredBL + filteredBR)) / (filteredTL + filteredTR + filteredBL + filteredBR);
 
   // --- XỬ LÝ MỜ CHO TRỤC NGANG ---
   fuzzyPan->setInput(1, errorPan);
@@ -184,18 +169,7 @@ void loop() {
   fuzzyTilt->fuzzify();
   float deltaTilt = fuzzyTilt->defuzzify(1); // Xuất ra góc nhích (-5 đến 5)
 
-  // 5. CHỐT CHẶN 1: Step Limiter (Ép motor bò từ từ, chống vọt lố)
-  if (deltaPan > MAX_STEP) deltaPan = MAX_STEP;
-  if (deltaPan < -MAX_STEP) deltaPan = -MAX_STEP;
-
-  if (deltaTilt > MAX_STEP) deltaTilt = MAX_STEP;
-  if (deltaTilt < -MAX_STEP) deltaTilt = -MAX_STEP;
-
-  // 6. CHỐT CHẶN 2: Hardware Deadband (Chặn sai số li ti cuối cùng)
-  if (abs(deltaPan) < DEAD_BAND) deltaPan = 0;
-  if (abs(deltaTilt) < DEAD_BAND) deltaTilt = 0;
-
-  // 7. Xuất lệnh đến Servo
+  // Xuất lệnh đến Servo
   if (deltaPan != 0) {
     currentPanPos += deltaPan;
     currentPanPos = constrain(currentPanPos, PAN_MIN, PAN_MAX);
@@ -208,13 +182,12 @@ void loop() {
     servoTilt.write(currentTiltPos);
   }
 
-  // 6. In ra Serial Monitor để theo dõi và tinh chỉnh
+  // In ra Serial Monitor để theo dõi và tinh chỉnh
   Serial.print("E_Pan: "); Serial.print(errorPan);
   Serial.print(" | dPan: "); Serial.print(deltaPan);
   Serial.print(" | E_Tilt: "); Serial.print(errorTilt);
   Serial.print(" | dTilt: "); Serial.print(deltaTilt);
   Serial.println();
 
-  // Tốc độ lấy mẫu (100ms/lần giúp hệ thống mượt mà)
-  delay(20); 
+  delay(100); 
 }

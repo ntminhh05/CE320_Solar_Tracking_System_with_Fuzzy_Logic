@@ -81,7 +81,6 @@ class MqttWorker(QObject):
         super().__init__()
         self._db = None
         self._mqtt_client = None
-        self._init_firebase()
 
     # ── Firebase ──────────────────────────────────────────────────────
     def _init_firebase(self):
@@ -133,6 +132,8 @@ class MqttWorker(QObject):
 
     # ── Entry point (gọi bởi QThread.started) ────────────────────────
     def run(self):
+        self._init_firebase()
+        
         self._mqtt_client = mqtt.Client(
             mqtt.CallbackAPIVersion.VERSION2,
             client_id=f"SCADA_Gateway_{int(time.time())}"
@@ -157,37 +158,6 @@ class MqttWorker(QObject):
 # ══════════════════════════════════════════════════════════════════════
 # 2. WIDGET CON — TÁI SỬ DỤNG
 # ══════════════════════════════════════════════════════════════════════
-
-class StatusLED(QWidget):
-    """Đèn LED tròn + nhãn trạng thái."""
-    def __init__(self, label: str, parent=None):
-        super().__init__(parent)
-        self._connected = False
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
-
-        self._led = QLabel("●")
-        self._led.setFont(QFont("Arial", 14))
-        self._lbl = QLabel(label)
-        self._lbl.setFont(QFont("SF Pro Display", 13) if sys.platform == "darwin"
-                          else QFont("Segoe UI", 13))
-        self._lbl.setStyleSheet("color: #3C3C43;")
-
-        layout.addWidget(self._led)
-        layout.addWidget(self._lbl)
-        layout.addStretch()
-        self.set_status(False)
-
-    def set_status(self, ok: bool):
-        self._connected = ok
-        self._led.setStyleSheet(
-            f"color: {'#34C759' if ok else '#FF3B30'};"
-        )
-        self._lbl.setText(
-            self._lbl.text().split(" [")[0] +
-            (" [O]" if ok else " [X]")
-        )
 
 
 class KpiCard(QFrame):
@@ -226,103 +196,6 @@ class KpiCard(QFrame):
 
     def update_value(self, val: float, decimals: int = 2):
         self._value_lbl.setText(f"{val:.{decimals}f}")
-
-
-class AngleGauge(QFrame):
-    """Hiển thị góc servo kiểu đơn giản — số + thanh màu."""
-    def __init__(self, label: str, color: str = "#30D158", parent=None):
-        super().__init__(parent)
-        self._color = color
-        self.setStyleSheet("""
-            QFrame {
-                background: white;
-                border-radius: 16px;
-                border: 1px solid #E5E5EA;
-            }
-        """)
-        self.setMinimumSize(120, 120)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(4)
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        self._lbl = QLabel(label)
-        self._lbl.setFont(QFont("Segoe UI", 10))
-        self._lbl.setStyleSheet("color: #8E8E93; border: none;")
-        self._lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        self._val = QLabel("—°")
-        self._val.setFont(QFont("Segoe UI", 28, QFont.Weight.Medium))
-        self._val.setStyleSheet(f"color: {color}; border: none;")
-        self._val.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        self._bar = QFrame()
-        self._bar.setFixedHeight(5)
-        self._bar.setStyleSheet(f"""
-            background: qlineargradient(
-                x1:0, y1:0, x2:1, y2:0,
-                stop:0 #E5E5EA, stop:1 {color}
-            );
-            border-radius: 3px;
-            border: none;
-        """)
-
-        layout.addWidget(self._lbl)
-        layout.addWidget(self._val)
-        layout.addWidget(self._bar)
-
-    def update_angle(self, angle: float):
-        self._val.setText(f"{angle:.1f}°")
-
-
-class ErrorBar(QFrame):
-    """Thanh hiển thị sai số Fuzzy (errorPan / errorTilt)."""
-    def __init__(self, label: str, parent=None):
-        super().__init__(parent)
-        self.setStyleSheet("background: transparent; border: none;")
-
-        row = QHBoxLayout(self)
-        row.setContentsMargins(0, 4, 0, 4)
-        row.setSpacing(10)
-
-        self._lbl = QLabel(label)
-        self._lbl.setFixedWidth(80)
-        self._lbl.setFont(QFont("Segoe UI", 11))
-        self._lbl.setStyleSheet("color: #3C3C43;")
-
-        self._bar = QSlider(Qt.Orientation.Horizontal)
-        self._bar.setRange(-500, 500)
-        self._bar.setValue(0)
-        self._bar.setEnabled(False)          # chỉ đọc
-        self._bar.setStyleSheet("""
-            QSlider::groove:horizontal {
-                height: 6px; background: #E5E5EA; border-radius: 3px;
-            }
-            QSlider::handle:horizontal {
-                width: 14px; height: 14px;
-                background: #007AFF; border-radius: 7px;
-                margin: -4px 0;
-            }
-            QSlider::sub-page:horizontal {
-                background: #007AFF; border-radius: 3px;
-            }
-        """)
-
-        self._val = QLabel("0.00")
-        self._val.setFixedWidth(50)
-        self._val.setFont(QFont("Segoe UI", 11, QFont.Weight.Medium))
-        self._val.setStyleSheet("color: #007AFF;")
-        self._val.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-
-        row.addWidget(self._lbl)
-        row.addWidget(self._bar)
-        row.addWidget(self._val)
-
-    def update_error(self, value: float):
-        clamped = max(-500, min(500, int(value * 100)))
-        self._bar.setValue(clamped)
-        self._val.setText(f"{value:+.2f}")
 
 
 def make_card(title: str) -> tuple[QFrame, QVBoxLayout]:
@@ -407,8 +280,6 @@ class MainWindow(QMainWindow):
         self._yield_wh: float = 0.0      # tích luỹ năng lượng
         self._last_time: float | None = None
 
-        self._manual_mode = False
-
         self._build_ui()
         self._start_worker()
 
@@ -438,71 +309,6 @@ class MainWindow(QMainWindow):
         title.setStyleSheet("color: #1C1C1E; background: transparent;")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sb_layout.addWidget(title)
-
-        # Network status card
-        net_card, net_inner = make_card("NETWORK STATUS")
-        self._led_mqtt     = StatusLED("[O] MQTT Broker")
-        self._led_firebase = StatusLED("[O] Cloud Firebase")
-        net_inner.addWidget(self._led_mqtt)
-        net_inner.addWidget(self._led_firebase)
-        sb_layout.addWidget(net_card)
-
-        # Control mode card
-        mode_card, mode_inner = make_card("CONTROL MODE")
-        self._btn_fuzzy  = QRadioButton("Fuzzy Logic")
-        self._btn_manual = QRadioButton("Manual Override")
-        self._btn_fuzzy.setFont(QFont("Segoe UI", 12))
-        self._btn_manual.setFont(QFont("Segoe UI", 12))
-        self._btn_fuzzy.setChecked(True)
-        mode_inner.addWidget(self._btn_fuzzy)
-        mode_inner.addWidget(self._btn_manual)
-        self._mode_group = QButtonGroup()
-        self._mode_group.addButton(self._btn_fuzzy, 0)
-        self._mode_group.addButton(self._btn_manual, 1)
-        self._mode_group.idClicked.connect(self._on_mode_changed)
-        for rb in [self._btn_fuzzy, self._btn_manual]:
-            rb.setStyleSheet("""
-                QRadioButton { color: #3C3C43; border: none; }
-                QRadioButton::indicator { width:16px; height:16px; }
-            """)
-        sb_layout.addWidget(mode_card)
-
-        # Manual override card
-        man_card, man_inner = make_card("MANUAL OVERRIDE")
-
-        pan_row = QHBoxLayout()
-        pan_lbl = QLabel("Pan Angle"); pan_lbl.setStyleSheet("color:#3C3C43; border:none;")
-        pan_lbl.setFont(QFont("Segoe UI", 11))
-        self._pan_val_lbl = QLabel("90°"); self._pan_val_lbl.setStyleSheet("color:#007AFF; border:none;")
-        self._pan_val_lbl.setFont(QFont("Segoe UI", 11, QFont.Weight.Medium))
-        pan_row.addWidget(pan_lbl); pan_row.addStretch(); pan_row.addWidget(self._pan_val_lbl)
-
-        self._pan_slider = QSlider(Qt.Orientation.Horizontal)
-        self._pan_slider.setRange(0, 180); self._pan_slider.setValue(90)
-        self._pan_slider.setEnabled(False)
-        self._pan_slider.valueChanged.connect(
-            lambda v: self._pan_val_lbl.setText(f"{v}°"))
-        self._style_slider(self._pan_slider)
-
-        tilt_row = QHBoxLayout()
-        tilt_lbl = QLabel("Tilt Angle"); tilt_lbl.setStyleSheet("color:#3C3C43; border:none;")
-        tilt_lbl.setFont(QFont("Segoe UI", 11))
-        self._tilt_val_lbl = QLabel("90°"); self._tilt_val_lbl.setStyleSheet("color:#007AFF; border:none;")
-        self._tilt_val_lbl.setFont(QFont("Segoe UI", 11, QFont.Weight.Medium))
-        tilt_row.addWidget(tilt_lbl); tilt_row.addStretch(); tilt_row.addWidget(self._tilt_val_lbl)
-
-        self._tilt_slider = QSlider(Qt.Orientation.Horizontal)
-        self._tilt_slider.setRange(20, 160); self._tilt_slider.setValue(90)
-        self._tilt_slider.setEnabled(False)
-        self._tilt_slider.valueChanged.connect(
-            lambda v: self._tilt_val_lbl.setText(f"{v}°"))
-        self._style_slider(self._tilt_slider)
-
-        man_inner.addLayout(pan_row)
-        man_inner.addWidget(self._pan_slider)
-        man_inner.addLayout(tilt_row)
-        man_inner.addWidget(self._tilt_slider)
-        sb_layout.addWidget(man_card)
 
         sb_layout.addStretch()
 
@@ -549,24 +355,7 @@ class MainWindow(QMainWindow):
             pw.setMinimumHeight(150)
             g2_row.addWidget(pw)
         mp_layout.addLayout(g2_row)
-
-        # --- Bottom row: Fuzzy Diagnostic + Angle Gauges ---
-        bot_row = QHBoxLayout(); bot_row.setSpacing(12)
-
-        fuzzy_card, fuzzy_inner = make_card("FUZZY CONTROLLER DIAGNOSTIC")
-        self._err_pan  = ErrorBar("errorPan")
-        self._err_tilt = ErrorBar("errorTilt")
-        fuzzy_inner.addWidget(self._err_pan)
-        fuzzy_inner.addWidget(self._err_tilt)
-        fuzzy_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        bot_row.addWidget(fuzzy_card, 3)
-
-        self._gauge_pan  = AngleGauge("Pan Angle",  "#30D158")
-        self._gauge_tilt = AngleGauge("Tilt Angle", "#30D158")
-        bot_row.addWidget(self._gauge_pan,  1)
-        bot_row.addWidget(self._gauge_tilt, 1)
-
-        mp_layout.addLayout(bot_row)
+        
         root.addWidget(main_panel, 1)
 
     @staticmethod
@@ -597,10 +386,6 @@ class MainWindow(QMainWindow):
 
         self._thread.started.connect(self._worker.run)
         self._worker.data_received.connect(self._on_data)
-        self._worker.mqtt_status.connect(
-            lambda ok: self._led_mqtt.set_status(ok))
-        self._worker.firebase_status.connect(
-            lambda ok: self._led_firebase.set_status(ok))
 
         self._thread.start()
 
@@ -612,10 +397,6 @@ class MainWindow(QMainWindow):
         voltage = float(data.get("voltage",   0.0))
         current = float(data.get("current",   0.0))
         power   = float(data.get("power",     0.0))
-        err_pan = float(data.get("errorPan",  0.0))
-        err_tilt= float(data.get("errorTilt", 0.0))
-        pan     = float(data.get("panAngle",  90.0))
-        tilt    = float(data.get("tiltAngle", 90.0))
 
         # Tích lũy điện năng (Wh) = P * Δt / 3600
         if self._last_time is not None:
@@ -647,23 +428,9 @@ class MainWindow(QMainWindow):
         self._curve_volt.setData(xs,  list(self._buf_voltage))
         self._curve_curr.setData(xs,  list(self._buf_current))
 
-        self._err_pan.update_error(err_pan)
-        self._err_tilt.update_error(err_tilt)
-        self._gauge_pan.update_angle(pan)
-        self._gauge_tilt.update_angle(tilt)
-
-        # Đồng bộ slider khi ở chế độ Auto
-        if not self._manual_mode:
-            self._pan_slider.setValue(int(pan))
-            self._tilt_slider.setValue(int(tilt))
-
     # ─────────────────────────────────────────────────────────────────
     # 3-D. SỰ KIỆN NÚT BẤM
     # ─────────────────────────────────────────────────────────────────
-    def _on_mode_changed(self, btn_id: int):
-        self._manual_mode = (btn_id == 1)
-        self._pan_slider.setEnabled(self._manual_mode)
-        self._tilt_slider.setEnabled(self._manual_mode)
 
     def _export_csv(self):
         if not self._history:
